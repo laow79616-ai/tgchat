@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TG Sync Hub</title>
+<style>
+:root{--l:#22324b;--m:#8ea0b8;--b:#4d8dff;--g:#32c48d;--r:#fb7185;font-family:Microsoft YaHei,sans-serif}
+*{box-sizing:border-box}body{margin:0;background:#07101c;color:#e8eef8}
+.hidden{display:none!important}
+.login{min-height:100vh;display:grid;place-items:center;padding:16px}
+.box{width:min(440px,92vw);padding:28px;border:1px solid var(--l);border-radius:18px;background:#101c2f}
+.app{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
+aside{background:#0a1423;border-right:1px solid var(--l);padding:16px}
+nav button{display:block;width:100%;text-align:left;margin:3px 0;padding:10px;border:0;border-radius:8px;background:0;color:#9aabc0}
+nav button.on,nav button:hover{background:#17263d;color:#fff}
+main{padding:20px 22px 40px}h1{margin:0 0 12px;font-size:22px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.stat,.panel{background:#101c2f;border:1px solid var(--l);border-radius:12px;padding:14px}
+.stat span{color:var(--m);font-size:12px}.stat b{display:block;font-size:24px;margin-top:6px}
+.panel{margin-top:12px;overflow:auto}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:8px;border-top:1px solid var(--l);text-align:left;white-space:nowrap}
+.badge{padding:2px 8px;border-radius:99px;background:#27364d;color:#c9d5e6;font-size:11px}
+.badge.ok{background:#153d34;color:#67e0b4}.badge.bad{background:#4a2230;color:#ff9aab}.badge.warn{background:#43381c;color:#ffd56a}
+input,select,textarea,button{font:inherit;color:inherit}
+input,select,textarea{width:100%;padding:9px 10px;margin:6px 0;border:1px solid #334866;border-radius:8px;background:#0a1424}
+.btn{border:0;border-radius:8px;padding:8px 12px;background:var(--b);color:#fff;cursor:pointer}
+.btn.g{background:#24344d}.btn.d{background:#b43b51}.btn.s{padding:6px 9px;font-size:12px}
+.hint{color:var(--m);font-size:12px}
+.modal{position:fixed;inset:0;background:#020712aa;display:grid;place-items:center;padding:12px}
+.modal .in{width:min(520px,100%);background:#111c2e;border:1px solid var(--l);border-radius:14px;padding:18px;max-height:90vh;overflow:auto}
+.toast{position:fixed;right:16px;bottom:16px;background:#1a7a5d;padding:10px 14px;border-radius:8px}
+@media(max-width:860px){.app{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}}
+</style></head>
+<body>
+<section id="login" class="login"><div class="box">
+<div style="width:42px;height:42px;border-radius:12px;background:linear-gradient(135deg,#4d8dff,#8b7cff);display:grid;place-items:center;font-weight:800">TG</div>
+<h1 style="margin-top:12px">Sync Hub 管理面板</h1>
+<p class="hint">总览 / 监控衍射 / 镜像账号 / 克隆绑定 / 关键词 / 群组 / 消息 / 任务 / 事件</p>
+<label class="hint"><input id="live" type="checkbox" style="width:auto"> 对接 https://tgchat.pw/api</label>
+<button class="btn" id="go" style="width:100%;margin-top:10px">进入中控台</button>
+<p class="hint" id="loginErr"></p>
+</div></section>
+<div id="app" class="app hidden">
+<aside>
+<div style="font-weight:800;margin-bottom:10px">TG Sync Hub<div class="hint">多群完全互通控制中心</div></div>
+<nav id="nav">
+<button data-t="overview" class="on">总览</button>
+<button data-t="monitors">监控与衍射</button>
+<button data-t="accounts">镜像账号</button>
+<button data-t="bindings">克隆绑定</button>
+<button data-t="keywords">关键词替换</button>
+<button data-t="groups">群组窗口</button>
+<button data-t="messages">消息映射</button>
+<button data-t="jobs">调度任务</button>
+<button data-t="events">系统事件</button>
+</nav>
+</aside>
+<main><div class="row" style="justify-content:space-between"><h1 id="title">运行总览</h1><span class="hint" id="health">演示模式</span></div><div id="view"></div></main>
+</div>
+<div id="modal" class="hidden"></div><div id="toast" class="toast hidden"></div>
+<script>
+const DEMO={
+accounts:[
+{id:1,display_name:"监控A",telegram_user_id:7617836080,session_key:"monitor-a",account_role:"MONITOR",online_status:"ONLINE",enabled:true,binding_count:0,pending_jobs:0,failed_jobs:0},
+{id:2,display_name:"镜像B",telegram_user_id:700100200,session_key:"mirror-b",account_role:"MIRROR",online_status:"ONLINE",enabled:true,binding_count:1,pending_jobs:1,failed_jobs:0},
+{id:3,display_name:"镜像C",telegram_user_id:700100201,session_key:"mirror-c",account_role:"HYBRID",online_status:"RESTRICTED",enabled:true,binding_count:1,pending_jobs:1,failed_jobs:2,suspension_reason:"疑似冻结停发"}
+],
+users:[{id:11,display_name:"老莫",telegram_user_id:888001,username:"laomo"},{id:12,display_name:"俊成",telegram_user_id:888002,username:"juncheng"},{id:13,display_name:"待分配",telegram_user_id:888003,username:"wait01"}],
+bindings:[
+{id:21,enabled:true,effective_name:"老莫",profile_sync_status:"SYNCED",real_user:{id:11,display_name:"老莫",telegram_user_id:888001},mirror_account:{id:2,display_name:"镜像B"}},
+{id:22,enabled:true,effective_name:"俊成",profile_sync_status:"PENDING",real_user:{id:12,display_name:"俊成",telegram_user_id:888002},mirror_account:{id:3,display_name:"镜像C"}}
+],
+monitorRoutes:[{monitor_account_id:1,source_group_id:101,target_group_id:102,enabled:true,delay_seconds:2},{monitor_account_id:1,source_group_id:101,target_group_id:103,enabled:true,delay_seconds:2}],
+keywords:[{id:31,keyword:"微信",replacement:"内部客服窗口",priority:10,enabled:true,match_count:42},{id:32,keyword:"@",replacement:"",priority:20,enabled:true,match_count:18}],
+groups:[
+{id:101,name:"A · laomojie",telegram_group_id:-1004379450058,sort_order:1,sync_mode:"FULL",delay_seconds:0,enabled:true,sync_enabled:true,note:"来源主群"},
+{id:102,name:"B · shengmapipi",telegram_group_id:-1003920348527,sort_order:2,sync_mode:"FULL",delay_seconds:2,enabled:true,sync_enabled:true,note:"衍射目标"},
+{id:103,name:"C · juncheng1",telegram_group_id:-1004087817146,sort_order:3,sync_mode:"FULL",delay_seconds:3,enabled:true,sync_enabled:true,note:"衍射目标"}
+],
+messages:[{id:"msg-1001",origin_group_id:101,origin_message_id:8801,content_type:"TEXT",text:"今天柜机到货，先同步库存。",replica_count:3,reply_count:1},{id:"msg-1002",origin_group_id:101,origin_message_id:8802,content_type:"PHOTO",text:"货柜实拍",replica_count:2,reply_count:0}],
+jobs:[{id:35580,source_group_id:101,target_group_id:102,mirror_account_id:2,status:"SENT",retry_count:0},{id:35581,source_group_id:101,target_group_id:103,mirror_account_id:3,status:"FAILED",retry_count:2,error_message:"冻结停发"},{id:35582,source_group_id:101,target_group_id:102,mirror_account_id:2,status:"WAITING_PARENT",retry_count:0},{id:35583,source_group_id:101,target_group_id:103,mirror_account_id:2,status:"PENDING",retry_count:0}],
+events:[{id:901,event_type:"RECEIVED",group_id:101,payload:{text:"柜机到货"}},{id:902,event_type:"ROUTED",group_id:102,payload:{job:35580}},{id:903,event_type:"FAILED",group_id:103,payload:{reason:"frozen"}}],
+dashboard:{incoming_per_minute:4,outgoing_per_minute:7,enabled_groups:3,sent_24h:186,incoming_24h:92,pending_jobs:2,processing_jobs:1,waiting_parent:1}
+};
+let live=false,tab="overview",S=JSON.parse(JSON.stringify(DEMO));
+const $=id=>document.getElementById(id);
+const esc=v=>String(v??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const acc=id=>S.accounts.find(x=>x.id===id),grp=id=>S.groups.find(x=>x.id===id);
+const badge=(t,k)=>{const c=k==="ok"?"ok":k==="bad"?"bad":k==="warn"?"warn":"";return `<span class="badge ${c}">${esc(t)}</span>`};
+const toast=m=>{$("toast").textContent=m;$("toast").classList.remove("hidden");setTimeout(()=>$("toast").classList.add("hidden"),2000)};
+function modal(title,body){$("modal").className="modal";$("modal").innerHTML=`<div class="in"><h2>${title}</h2>${body}<div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn g" onclick="closeM()">关闭</button></div></div>`}
+function closeM(){$("modal").className="hidden";$("modal").innerHTML=""}
+async function api(path){
+  if(!live) return null;
+  try{const r=await fetch("https://tgchat.pw/api/sync"+path); if(!r.ok) throw 0; return await r.json()}catch(e){toast("后端无 Sync Hub 接口，仍用演示数据");live=false;return null}
+}
+function render(){
+  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.t===tab));
+  const titles={overview:"运行总览",monitors:"监控与衍射",accounts:"镜像账号",bindings:"克隆绑定",keywords:"关键词替换",groups:"群组窗口",messages:"消息映射",jobs:"调度任务",events:"系统事件"};
+  $("title").textContent=titles[tab]; $("health").textContent=live?"对接 API":"演示模式 · 9 个模块";
+  window["p_"+tab]();
+}
+function p_overview(){
+  const d=S.dashboard||{};
+  $("view").innerHTML=`<div class="stats">
+  <div class="stat"><span>每分钟收/发</span><b>${d.incoming_per_minute||0} / ${d.outgoing_per_minute||0}</b></div>
+  <div class="stat"><span>启用群组</span><b>${d.enabled_groups||0}</b></div>
+  <div class="stat"><span>24h 同步</span><b>${d.sent_24h||0}</b></div>
+  <div class="stat"><span>排队 / 父消息</span><b>${(d.pending_jobs||0)+(d.processing_jobs||0)} / ${d.waiting_parent||0}</b></div></div>
+  <div class="panel"><b>账号调度</b>${S.accounts.map(a=>`<div style="padding:8px 0;border-top:1px solid var(--l)">${esc(a.display_name)} · ${a.account_role} ${badge(a.online_status==="ONLINE"?"在线":(a.suspension_reason?"冻结":"离线"),a.online_status==="ONLINE"?"ok":"bad")} 绑定${a.binding_count} · 排队${a.pending_jobs}</div>`).join("")}</div>
+  <div class="panel"><b>克隆映射</b>${S.bindings.map(b=>`<div style="padding:8px 0;border-top:1px solid var(--l)">${esc(b.real_user.display_name)} → ${esc(b.mirror_account.display_name)} ${badge(b.enabled?"启用":"停用","ok")}</div>`).join("")}</div>`;
+}
+function p_monitors(){
+  const ms=S.accounts.filter(a=>["MONITOR","HYBRID"].includes(a.account_role));
+  $("view").innerHTML=`<div class="stats"><div class="stat"><span>监控号</span><b>${ms.length}</b></div><div class="stat"><span>衍射线路</span><b>${S.monitorRoutes.filter(x=>x.enabled).length}</b></div><div class="stat"><span>绑定发送</span><b>${S.bindings.filter(x=>x.enabled).length}</b></div><div class="stat"><span>来源群</span><b>1</b></div></div>
+  <div class="panel"><div class="row" style="justify-content:space-between"><b>监控 A → 目标 B / C</b><button class="btn s" onclick="modal('监控配置','<p class=hint>上层监控号只读来源群；下层镜像号按克隆绑定向目标群发送。来源群不能作为目标。</p>')">编辑线路</button></div>
+  ${S.monitorRoutes.map(r=>`<div style="padding:8px 0;border-top:1px solid var(--l)">${esc(acc(r.monitor_account_id)?.display_name)} 监听 ${esc(grp(r.source_group_id)?.name)} → ${esc(grp(r.target_group_id)?.name)} · 延迟 ${r.delay_seconds}s</div>`).join("")}</div>`;
+}
+function p_accounts(){
+  $("view").innerHTML=`<div class="panel"><div class="row" style="justify-content:space-between"><b>全部镜像账号</b><span><button class="btn s" onclick="toast('演示：扫码接入需真实 worker')">扫码接入</button> <button class="btn s g" onclick="toast('演示：手机号接入需真实 API')">手机号接入</button></span></div>
+  <table><tr><th>账号</th><th>TG ID</th><th>槽位</th><th>职责</th><th>状态</th><th>绑定</th><th>调度</th><th>操作</th></tr>
+  ${S.accounts.map(a=>`<tr><td>${esc(a.display_name)}${a.suspension_reason?`<div class=hint>${esc(a.suspension_reason)}</div>`:""}</td><td>${a.telegram_user_id}</td><td><code>${esc(a.session_key)}</code></td><td>${a.account_role}</td><td>${badge(a.online_status==="ONLINE"?"在线":"冻结",a.online_status==="ONLINE"?"ok":"bad")}</td><td>${a.binding_count}</td><td>${a.pending_jobs}/${a.failed_jobs}</td><td><button class="btn s" onclick="toast('上线 '+${a.id})">上线</button> <button class="btn s g" onclick="toast('代理 '+${a.id})">代理</button> <button class="btn s d" onclick="toast('删除需真实后端')">删除</button></td></tr>`).join("")}</table></div>`;
+}
+function p_bindings(){
+  const bound=new Set(S.bindings.map(x=>x.real_user.id)),wait=S.users.filter(u=>!bound.has(u.id));
+  $("view").innerHTML=`<div class="stats"><div class="stat"><span>识别客户</span><b>${S.users.length}</b></div><div class="stat"><span>有效绑定</span><b>${S.bindings.filter(b=>b.enabled).length}</b></div><div class="stat"><span>等待分配</span><b>${wait.length}</b></div><div class="stat"><span>资料同步中</span><b>${S.bindings.filter(b=>b.profile_sync_status==="PENDING").length}</b></div></div>
+  <div class="panel"><b>身份 → 镜像号</b><table><tr><th>目标</th><th>TG ID</th><th>镜像</th><th>资料</th><th>操作</th></tr>
+  ${S.bindings.map(b=>`<tr><td>${esc(b.effective_name)}</td><td>${b.real_user.telegram_user_id}</td><td>${esc(b.mirror_account.display_name)}</td><td>${badge(b.profile_sync_status,"ok")}</td><td><button class="btn s" onclick="toast('调整绑定')">调整</button> <button class="btn s g" onclick="toast('资料复刻')">资料</button></td></tr>`).join("")}</table></div>
+  <div class="panel"><b>等待镜像号队列</b>${wait.map(u=>`<div style="padding:8px 0;border-top:1px solid var(--l)">${esc(u.display_name)} @${esc(u.username)} · ${u.telegram_user_id} <button class="btn s" onclick="toast('指定镜像号')">指定</button></div>`).join("")||'<p class=hint>无等待成员</p>'}</div>`;
+}
+function p_keywords(){
+  $("view").innerHTML=`<div class="panel"><div class="row" style="justify-content:space-between"><b>关键词自动替换</b><button class="btn s" onclick="toast('新增规则')">新增规则</button></div>
+  <p class="hint">关键词填 @ 且替换为空，发送前删除完整 @用户名，不误删邮箱。</p>
+  <table><tr><th>优先级</th><th>关键词</th><th>替换为</th><th>命中</th><th>操作</th></tr>
+  ${S.keywords.map(k=>`<tr><td>${k.priority}</td><td><b>${esc(k.keyword)}</b></td><td>${k.replacement?esc(k.replacement):'<span class=hint>删除</span>'}</td><td>${k.match_count}</td><td><button class="btn s g" onclick="toast('编辑')">编辑</button> <button class="btn s d" onclick="toast('删除规则')">删除</button></td></tr>`).join("")}</table></div>`;
+}
+function p_groups(){
+  $("view").innerHTML=`<div class="panel"><div class="row" style="justify-content:space-between"><b>群组克隆窗口</b><button class="btn s" onclick="toast('添加群组')">添加群组</button></div>
+  <table><tr><th>顺序</th><th>标签</th><th>Group ID</th><th>模式</th><th>延迟</th><th>备注</th><th>操作</th></tr>
+  ${S.groups.map(g=>`<tr><td>${g.sort_order}</td><td>${esc(g.name)}</td><td><code>${g.telegram_group_id}</code></td><td>${badge(g.sync_mode,"ok")}</td><td>${g.delay_seconds?g.delay_seconds+"秒":"正常"}</td><td>${esc(g.note||"-")}</td><td><button class="btn s g" onclick="toast('编辑群')">编辑</button> <button class="btn s" onclick="toast('检查通过')">检查</button></td></tr>`).join("")}</table></div>`;
+}
+function p_messages(){
+  $("view").innerHTML=`<div class="panel"><b>Canonical 消息映射</b>
+  <table><tr><th>ID</th><th>来源</th><th>类型</th><th>内容</th><th>副本</th><th>回复</th><th></th></tr>
+  ${S.messages.map(m=>`<tr><td><code>${esc(m.id)}</code></td><td>${esc(grp(m.origin_group_id)?.name)} / ${m.origin_message_id}</td><td>${m.content_type}</td><td>${esc(m.text)}</td><td>${m.replica_count}</td><td>${m.reply_count}</td><td><button class="btn s" onclick="modal('映射 '+ '${m.id}','<p>来源副本 + 各群 Telegram Message ID。回复链按 parent canonical 解析，缺失则 WAITING_PARENT。</p>')">查看</button></td></tr>`).join("")}</table></div>`;
+}
+function p_jobs(){
+  $("view").innerHTML=`<div class="panel"><b>同步调度任务</b>
+  <table><tr><th>ID</th><th>路由</th><th>镜像号</th><th>状态</th><th>重试</th><th>异常</th><th></th></tr>
+  ${S.jobs.map(j=>`<tr><td>#${j.id}</td><td>${esc(grp(j.source_group_id)?.name)} → ${esc(grp(j.target_group_id)?.name)}</td><td>${esc(acc(j.mirror_account_id)?.display_name)}</td><td>${badge(j.status,j.status==="SENT"?"ok":j.status==="FAILED"?"bad":"warn")}</td><td>${j.retry_count}</td><td>${esc(j.error_message||"-")}</td><td>${j.status!=="SENT"?`<button class="btn s" onclick="toast('重试 #${j.id}')">重试</button>`:"-"}</td></tr>`).join("")}</table></div>`;
+}
+function p_events(){
+  $("view").innerHTML=`<div class="panel"><b>系统事件流</b>
+  <table><tr><th>ID</th><th>事件</th><th>群组</th><th>详情</th></tr>
+  ${S.events.map(e=>`<tr><td>#${e.id}</td><td>${e.event_type}</td><td>${esc(grp(e.group_id)?.name||"-")}</td><td><code>${esc(JSON.stringify(e.payload||{}))}</code></td></tr>`).join("")}</table></div>`;
+}
+$("go").onclick=()=>{live=$("live").checked;$("login").classList.add("hidden");$("app").classList.remove("hidden");render()};
+$("nav").onclick=e=>{const b=e.target.closest("button[data-t]");if(!b)return;tab=b.dataset.t;render()};
+</script></body></html>
