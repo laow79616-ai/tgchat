@@ -1,0 +1,16 @@
+[Unit]
+Description=tgchat live API
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/tgchat-live
+Environment=TGCHAT_DB=/var/lib/tgchat/tgchat.db
+ExecStart=/usr/bin/python3 /opt/tgchat-live/server.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
