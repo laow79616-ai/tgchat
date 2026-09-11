@@ -24,6 +24,12 @@ class H(BaseHTTPRequestHandler):
         self.end_headers(); self.wfile.write(b)
     def do_OPTIONS(self): self.sendj(200, {"ok": True})
     def do_GET(self):
+        _g=self.path.split("?")[0].rstrip("/")
+        if _g=="/api/ipbinds":
+            db=sqlite3.connect("/var/lib/tgchat/tgchat.db")
+            db.execute("CREATE TABLE IF NOT EXISTS ip_binds(ip_id INTEGER, account_id INTEGER, PRIMARY KEY(ip_id,account_id))")
+            rows=[{"ip_id":r[0],"account_id":r[1]} for r in db.execute("SELECT ip_id,account_id FROM ip_binds")]
+            self.sendj(200,rows); db.close(); return
         if self.path.split("?")[0].rstrip("/")=="/api/msgmap/speakers":
             c=sqlite3.connect("/var/lib/tgchat/tgchat.db"); c.row_factory=sqlite3.Row
             c.execute("CREATE TABLE IF NOT EXISTS msg_speakers(account_id INTEGER PRIMARY KEY,status TEXT)")
@@ -140,6 +146,30 @@ class H(BaseHTTPRequestHandler):
             self.sendj(404, {"detail":"Not Found","path":p})
         c.close()
     def do_POST(self):
+        _b=self.path.split("?")[0].rstrip("/")
+        if _b.startswith("/api/ips/") and _b.endswith("/bind"):
+            iid=int(_b.split("/")[3])
+            raw=self.rfile.read(int(self.headers.get("Content-Length") or 0) or 0)
+            import json as _j
+            try: body=_j.loads(raw or b"{}")
+            except Exception: body={}
+            ids=[int(x) for x in (body.get("account_ids") or [])]
+            db=sqlite3.connect("/var/lib/tgchat/tgchat.db")
+            db.execute("CREATE TABLE IF NOT EXISTS ip_binds(ip_id INTEGER, account_id INTEGER, PRIMARY KEY(ip_id,account_id))")
+            db.execute("DELETE FROM ip_binds WHERE ip_id=?",(iid,))
+            for aid in ids:
+                db.execute("INSERT OR REPLACE INTO ip_binds(ip_id,account_id) VALUES(?,?)",(iid,aid))
+            db.commit(); self.sendj(200,{"ok":True,"ip":iid,"n":len(ids)}); db.close(); return
+        _s=self.path.split("?")[0].rstrip("/")
+        if _s.startswith("/api/identities/") and _s.endswith("/start"):
+            iid=int(_s.split("/")[3])
+            c=sqlite3.connect("/var/lib/tgchat/tgchat.db")
+            try: c.execute("UPDATE identity_bindings SET enabled=1 WHERE id=?",(iid,))
+            except Exception:
+                try: c.execute("UPDATE identities SET enabled=1 WHERE id=?",(iid,))
+                except Exception as e:
+                    self.sendj(400,{"detail":str(e)}); c.close(); return
+            c.commit(); self.sendj(200,{"ok":True,"id":iid,"enabled":1}); c.close(); return
         _pn=self.path.split("?")[0].rstrip("/")
         if _pn.startswith("/api/identities/") and _pn.endswith("/note"):
             iid=int(_pn.split("/")[3])
