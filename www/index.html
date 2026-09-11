@@ -1,0 +1,280 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>TG Sync Hub</title>
+<style>
+:root{--bg:#070d18;--side:#0a1220;--card:#101a2c;--line:#24344c;--txt:#e8eef8;--muted:#8ea0b8;--acc:#5b9dff;--ok:#3dd68c}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(1200px 600px at 10% -10%,#13233c 0%,var(--bg) 55%);color:var(--txt);font-family:Microsoft YaHei,sans-serif}
+.app{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
+aside{background:rgba(10,18,32,.92);padding:18px 14px;border-right:1px solid var(--line)}
+aside>div{margin-bottom:16px;letter-spacing:.3px}
+nav button{display:block;width:100%;text-align:left;margin:4px 0;padding:10px 12px;border:0;border-radius:10px;background:transparent;color:var(--muted);cursor:pointer}
+nav button:hover{background:#132033;color:#fff}
+nav button.on{background:linear-gradient(90deg,#1b3a66,#173054);color:#fff;box-shadow:inset 3px 0 0 var(--acc)}
+main{padding:28px 32px}
+h1{margin:0 0 16px;font-size:26px;font-weight:800}
+.panel,#v{background:rgba(16,26,44,.92);border:1px solid var(--line);border-radius:16px;padding:16px 18px;line-height:1.7;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+#v div{margin:6px 0}
+.hint{color:var(--muted);font-size:12px}
+input,select{width:100%;max-width:420px;margin:6px 0 10px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:#0b1524;color:var(--txt)}
+button{margin-left:6px;padding:6px 10px;border:0;border-radius:8px;background:#3a5f99;color:#fff;cursor:pointer}
+button:hover{filter:brightness(1.08)}
+button[data-adel],button[data-del],button[data-k]{background:#8a3a4c}
+
+.chip{display:inline-block;margin:4px;padding:6px 12px;border-radius:999px;border:1px solid #334866;background:#1a2740;color:#c5d2e6}
+.chip-on{background:#1f8a5a !important;color:#d9ffe8 !important;border-color:#3dd68c !important;box-shadow:0 0 0 2px #3dd68c}
+</style></head><body>
+<div class="app"><aside>
+<div style="font-weight:800">TG Sync Hub<div class="hint">真实路径 · live</div></div>
+<nav id="nav">
+<button class="on" data-t="ov">总览</button>
+<button data-t="lis">监听账号</button>
+<button data-t="acc">镜像账号</button>
+<button data-t="bind">克隆绑定</button>
+<button data-t="msg">消息映射</button>
+<button data-t="api">API 池</button>
+<button data-t="ip">IP 线路池</button>
+</nav></aside>
+<main><h1 id="t">总览</h1><div id="v" class="panel">点左侧菜单切换</div></main></div>
+<script>
+var tab="ov";
+function draw(){
+  document.querySelectorAll("nav button").forEach(function(b){b.classList.toggle("on",b.dataset.t===tab);});
+  var T={ov:"总览",lis:"监听账号",acc:"镜像账号",bind:"克隆绑定",msg:"消息映射",api:"API 池",ip:"IP 线路池"};
+  document.getElementById("t").textContent=T[tab];
+  var box=document.getElementById("v");
+  if(tab==="ip"){
+    box.innerHTML="<textarea id='ipbat' placeholder='每行一条 IP:端口 或 IP:端口:账号:密码' style='width:100%;height:90px'></textarea><button id='ipgo'>一键批量加入</button><div id='iplist'>加载中</div><div id='ipacc'></div>";
+    document.getElementById("ipgo").onclick=function(){
+      fetch("/api/ips/batch",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:document.getElementById("ipbat").value})}).then(function(r){return r.json();}).then(function(d){alert(JSON.stringify(d));tab="ip";draw();});
+    };
+    var curIp=0, picked={};
+    function rowsOf(d){
+      if(Array.isArray(d)) return d;
+      if(d && Array.isArray(d.items)) return d.items;
+      if(d && Array.isArray(d.ips)) return d.ips;
+      return [];
+    }
+    function paintAcc(list){
+      var html="<div class='hint'>已选 IP #"+curIp+"，点号牌变绿再绑定</div>";
+      html+=list.map(function(a){
+        var on=!!picked[String(a.id)];
+        var st=(String(a.ip_id)===String(curIp))?"已绑":"";
+        return "<button type='button' class='chip"+(on?" chip-on":"")+"' data-chip='"+a.id+"'>#"+a.id+" "+(a.display_name||a.phone||"")+(st?" "+st:"")+"</button>";
+      }).join(" ");
+      html+="<div style='margin-top:10px'><button id='ipbind'>绑定这条IP</button></div>";
+      document.getElementById("ipacc").innerHTML=html;
+      document.getElementById("ipacc").onclick=function(e){
+        var c=e.target.closest("button[data-chip]");
+        if(c){picked[String(c.dataset.chip)]=!picked[String(c.dataset.chip)];paintAcc(list);return;}
+        if(e.target.id==="ipbind"){
+          var ids=Object.keys(picked).filter(function(k){return picked[k];});
+          fetch("/api/ips/"+curIp+"/bind",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({account_ids:ids})}).then(function(r){return r.text();}).then(function(x){alert(x);tab="ip";draw();});
+        }
+      };
+    }
+    Promise.all([
+      fetch("/api/ips").then(function(r){return r.json();}),
+      fetch("/api/accounts").then(function(r){return r.json();})
+    ]).then(function(x){
+      var ips=rowsOf(x[0]), acc=rowsOf(x[1]);
+      var el=document.getElementById("iplist");
+      if(!ips.length){el.textContent="池为空";return;}
+      el.innerHTML=ips.map(function(p){
+        var host=p.host||p.ip||"";
+        var port=p.port||"";
+        return "<div>#"+p.id+" "+host+":"+port+" <input id='ipn"+p.id+"' placeholder='备注/指定文案' value='"+(p.note||"").replace(/'/g,"")+"'> <button data-ipnote='"+p.id+"'>保存备注</button> <button data-use='"+p.id+"'>选这条</button> <button data-k='ips' data-id='"+p.id+"'>删除</button></div>";
+      }).join("");
+      el.onclick=function(e){
+        var nt=e.target.closest("button[data-ipnote]");
+        if(nt){var id=nt.dataset.ipnote;var v=(document.getElementById("ipn"+id)||{}).value||"";fetch("/api/ips/"+id+"/note",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({note:v})}).then(function(){nt.textContent="已保存";});return;}
+        var u=e.target.closest("button[data-use]");
+        if(u){curIp=Number(u.dataset.use);picked={};acc.forEach(function(a){if(String(a.ip_id)===String(curIp))picked[String(a.id)]=true;});paintAcc(acc);return;}
+        var d=e.target.closest("button[data-k]");
+        if(d){if(!confirm("删除 IP?"))return;fetch("/api/ips/"+d.dataset.id+"/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"}).then(function(){tab="ip";draw();});}
+      };
+    }).catch(function(e){box.textContent=String(e);});
+    return;
+  }
+if(tab==="api"){
+    box.textContent="加载 API...";
+    fetch("/api/apis").then(function(r){return r.json();}).then(function(d){
+      if(!Array.isArray(d)){box.textContent=JSON.stringify(d);return;}
+      box.innerHTML=d.map(function(x){return "<div>"+(x.name||"")+" "+(x.api_id||"")+" "+(x.account_id||"空闲")+" <button data-k='apis' data-id='"+x.id+"'>删除</button></div>";}).join("")||"池为空";
+      box.onclick=function(e){var b=e.target.closest("button[data-k]");if(!b)return;if(!confirm("删除?"))return;fetch("/api/"+b.dataset.k+"/"+b.dataset.id+"/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"}).then(function(){draw();});};
+    }).catch(function(e){box.textContent=String(e);});
+    return;
+  }
+  if(tab==="lis"){
+    box.innerHTML="<div>显示名</div><input id='ln'><div>手机号</div><input id='lp'><button id='lsv'>添加监听号</button><div id='llist'>加载中</div>";
+    document.getElementById("lsv").onclick=function(){
+      fetch("/api/accounts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({display_name:document.getElementById("ln").value,phone:document.getElementById("lp").value,role:"MONITOR",auto_api:true})}).then(function(){tab="lis";draw();});
+    };
+    fetch("/api/accounts").then(function(r){return r.json();}).then(function(d){
+      var list=(Array.isArray(d)?d:[]).filter(function(x){var r=String(x.role||"").toUpperCase();return r==="MONITOR"||r==="LISTEN"||r.indexOf("听")>=0;});
+      var box2=document.getElementById("llist");
+      box2.innerHTML=list.map(function(x){return "<div>#" +x.id+" "+(x.display_name||"")+" "+(x.phone||"")+" "+(x.status||"")+" <input id='nt"+x.id+"' placeholder='备注/指定文案' value='"+(x.note||"").replace(/'/g,"")+"'> <button data-note='"+x.id+"'>保存备注</button> <button data-adel='"+x.id+"'>删除</button></div>";}).join("")||"暂无监听号";
+      box2.onclick=function(e){
+        var n=e.target.closest("button[data-note]");
+        if(n){var id=n.dataset.note;var v=(document.getElementById("nt"+id)||{}).value||"";fetch("/api/accounts/"+id+"/note",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({note:v})}).then(function(){n.textContent="已保存";});return;}
+        var b=e.target.closest("button[data-adel]");if(!b)return;if(!confirm("删除 #"+b.dataset.adel+"?"))return;fetch("/api/accounts/"+b.dataset.adel+"/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"}).then(function(){tab="lis";draw();});
+      };
+    });
+    return;
+  }
+  if(tab==="acc"){
+    box.innerHTML="<div>显示名</div><input id='an'><div>手机号</div><input id='ap'><button id='asv'>添加账号</button><div id='alist'>加载账号...</div>";
+    document.getElementById("asv").onclick=function(){
+      fetch("/api/accounts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({display_name:document.getElementById("an").value,phone:document.getElementById("ap").value,auto_api:true})}).then(function(r){return r.text();}).then(function(){tab="acc";draw();});
+    };
+    var box=document.getElementById("alist");
+    fetch("/api/accounts").then(function(r){return r.json();}).then(function(d){
+      if(!Array.isArray(d)){box.textContent=JSON.stringify(d);return;}
+      d=d.filter(function(x){var r=String(x.role||"").toUpperCase();return r!=="MONITOR"&&r!=="LISTEN";});
+      box.innerHTML=d.map(function(x){return "<div>#" +x.id+" "+(x.display_name||"")+" "+(x.phone||"")+" "+(x.status||"")+" <input id='nt"+x.id+"' placeholder='备注/指定文案' value='"+String(x.note||"").replace(/'/g,"")+"'> <button data-note='"+x.id+"'>保存备注</button> <button data-adel='"+x.id+"'>删除</button></div>";}).join("")||"无账号";
+      box.onclick=function(e){
+        var n=e.target.closest("button[data-note]");
+        if(n){var id=n.dataset.note;var v=(document.getElementById("nt"+id)||{}).value||"";fetch("/api/accounts/"+id+"/note",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({note:v})}).then(function(){n.textContent="已保存";});return;}
+        var b=e.target.closest("button[data-adel]");if(!b)return;if(!confirm("删除账号 #"+b.dataset.adel+"?"))return;fetch("/api/accounts/"+b.dataset.adel+"/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"}).then(function(){tab="acc";draw();});
+      };
+    }).catch(function(e){box.textContent=String(e);});
+    return;
+  }
+  if(tab==="bind"){
+    box.innerHTML="<div class='hint'>填源群和目标群。监听点选最多3个，镜像最多10个。源用户不手填：3个监听号在源群里自动抓3个正在互动的真人。</div><div id='mchips'></div><div>源群</div><input id='sc' placeholder='@kuaiyue22 或 -100数字ID'><div>目标群</div><input id='dc' placeholder='@qiepian8 或 -100数字ID'><button id='bsv'>保存 #1</button><div id='pend' class='hint'>待绑定真人加载中</div><div id='blist'>加载绑定...</div>";
+    var pickM={}, pickI={};
+    fetch("/api/accounts").then(function(r){return r.json();}).then(function(d){
+      var all=Array.isArray(d)?d:[];
+      var mons=all.filter(function(a){var r=String(a.role||"").toUpperCase();return r==="MONITOR"||r==="LISTEN";});
+      var mirs=all.filter(function(a){var r=String(a.role||"").toUpperCase();return r!=="MONITOR"&&r!=="LISTEN";});
+      if(!mons.length) mons=all; if(!mirs.length) mirs=all;
+      function chips(list, map, max, title){
+        return "<div class='hint'>"+title+"（已选 "+Object.keys(map).filter(function(k){return map[k];}).length+"/"+max+"）</div>"+list.map(function(a){
+          var on=!!map[String(a.id)];
+          return "<button type='button' class='chip"+(on?" chip-on":"")+"' data-kind='"+title+"' data-id='"+a.id+"'>#"+a.id+" "+(a.display_name||a.phone||"")+"</button>";
+        }).join(" ");
+      }
+      function paint(){document.getElementById("mchips").innerHTML=chips(mons,pickM,3,"监听")+chips(mirs,pickI,10,"镜像");}
+      paint();
+      document.getElementById("mchips").onclick=function(e){
+        var b=e.target.closest("button[data-id]"); if(!b)return;
+        var map=b.dataset.kind==="监听"?pickM:pickI;
+        var max=b.dataset.kind==="监听"?3:10;
+        var id=String(b.dataset.id);
+        if(map[id]) map[id]=false;
+        else {var n=Object.keys(map).filter(function(k){return map[k];}).length; if(n>=max){alert("最多"+max+"个");return;} map[id]=true;}
+        paint();
+      };
+      document.getElementById("bsv").onclick=function(){
+        var ms=Object.keys(pickM).filter(function(k){return pickM[k];}).map(Number);
+        var is=Object.keys(pickI).filter(function(k){return pickI[k];}).map(Number);
+        fetch("/api/identities",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({monitor_account:ms[0]||0,monitor2:ms[1]||0,monitor3:ms[2]||0,mirrors:is,source_group:sc.value,real_user:"AUTO",mirror_account:is[0]||0,dest_group:dc.value,tag:"1"})}).then(function(r){return r.text();}).then(function(){tab="bind";draw();});
+      };
+    });
+    fetch("/api/pending").then(function(r){return r.json();}).then(function(d){
+      var el=document.getElementById("pend");
+      if(!el) return;
+      if(!Array.isArray(d)||!d.length){el.textContent="还没有采到真人。worker 停着或限流时这里为空。";return;}
+      el.innerHTML="系统已采到："+d.map(function(x){return (x.username||"")+" @"+ (x.source_group||"");}).join(" 、 ");
+    }).catch(function(){var el=document.getElementById("pend"); if(el) el.textContent="待绑定接口暂无数据";});
+    fetch("/api/identities").then(function(r){return r.json();}).then(function(d){
+      if(!Array.isArray(d)){blist.textContent=JSON.stringify(d);return;}
+      var el=document.getElementById("blist");
+      el.innerHTML=d.map(function(x){return "<div>#"+(x.tag||x.id)+" 监听"+[x.monitor_account,x.monitor2,x.monitor3].filter(Boolean).join("/")+" "+x.source_group+" 源用户"+(x.real_user||"AUTO")+" 镜像"+x.mirror_account+" "+x.dest_group+" <input id='bn"+x.id+"' placeholder='备注/指定文案' value='"+(x.note||"").replace(/'/g,"")+"'> <button data-bnote='"+x.id+"'>保存备注</button> <button data-del='"+x.id+"'>删除</button></div>";}).join("")||"无绑定";
+      el.onclick=function(e){
+        var n=e.target.closest("button[data-bnote]");
+        if(n){var id=n.dataset.bnote;var v=(document.getElementById("bn"+id)||{}).value||"";fetch("/api/identities/"+id+"/note",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({note:v})}).then(function(){n.textContent="已保存";});return;}
+        var b=e.target.closest("button[data-del]");if(!b)return;if(!confirm("删除?"))return;fetch("/api/identities/"+b.dataset.del+"/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"}).then(function(){tab="bind";draw();});
+      };
+    });
+    return;
+  }
+if(tab==="api"){
+    box.textContent="加载 API...";
+    fetch("/api/apis").then(function(r){return r.json();}).then(function(d){
+      if(!Array.isArray(d)){box.textContent=JSON.stringify(d);return;}
+      box.innerHTML=d.map(function(x){return "<div>"+(x.name||"")+" "+(x.api_id||"")+" "+(x.account_id||"空闲")+" <button data-k='apis' data-id='"+x.id+"'>删除</button></div>";}).join("")||"池为空";
+      box.onclick=function(e){var b=e.target.closest("button[data-k]");if(!b)return;if(!confirm("删除?"))return;fetch("/api/"+b.dataset.k+"/"+b.dataset.id+"/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"}).then(function(){draw();});};
+    }).catch(function(e){box.textContent=String(e);});
+    return;
+  }
+  if(tab==="lis"){
+    box.innerHTML="<div>显示名</div><input id='ln'><div>手机号</div><input id='lp'><button id='lsv'>添加监听号</button><div id='llist'>加载中</div>";
+    document.getElementById("lsv").onclick=function(){
+      fetch("/api/accounts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({display_name:document.getElementById("ln").value,phone:document.getElementById("lp").value,role:"MONITOR",auto_api:true})}).then(function(){tab="lis";draw();});
+    };
+    fetch("/api/accounts").then(function(r){return r.json();}).then(function(d){
+      var list=(Array.isArray(d)?d:[]).filter(function(x){var r=String(x.role||"").toUpperCase();return r==="MONITOR"||r==="LISTEN"||r.indexOf("听")>=0;});
+      var box2=document.getElementById("llist");
+      box2.innerHTML=list.map(function(x){return "<div>#" +x.id+" "+(x.display_name||"")+" "+(x.phone||"")+" "+(x.status||"")+" <button data-adel='"+x.id+"'>删除</button></div>";}).join("")||"暂无监听号";
+      box2.onclick=function(e){var b=e.target.closest("button[data-adel]");if(!b)return;if(!confirm("删除 #"+b.dataset.adel+"?"))return;fetch("/api/accounts/"+b.dataset.adel+"/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"}).then(function(){tab="lis";draw();});};
+    });
+    return;
+  }
+  if(tab==="acc"){
+    box.innerHTML="<div>显示名</div><input id='an'><div>手机号</div><input id='ap'><button id='asv'>添加账号</button><div id='alist'>加载账号...</div>";
+    document.getElementById("asv").onclick=function(){
+      fetch("/api/accounts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({display_name:document.getElementById("an").value,phone:document.getElementById("ap").value,auto_api:true})}).then(function(r){return r.text();}).then(function(){tab="acc";draw();});
+    };
+    var box=document.getElementById("alist");
+    fetch("/api/accounts").then(function(r){return r.json();}).then(function(d){
+      if(!Array.isArray(d)){box.textContent=JSON.stringify(d);return;}
+      d=d.filter(function(x){var r=String(x.role||"").toUpperCase();return r!=="MONITOR"&&r!=="LISTEN";});
+      box.innerHTML=d.map(function(x){return "#"+x.id+" "+(x.display_name||"")+" "+(x.phone||"")+" "+(x.status||"");}).join("<br>")||"无账号";
+    }).catch(function(e){box.textContent=String(e);});
+    return;
+  }
+  if(tab==="bind"){
+    box.textContent="加载绑定...";
+    fetch("/api/identities").then(function(r){return r.json();}).then(function(d){
+      if(!Array.isArray(d)){box.textContent=JSON.stringify(d);return;}
+      box.innerHTML=d.map(function(x){return "#"+(x.tag||x.id)+" 监听"+x.monitor_account+" "+x.source_group+" "+x.real_user+" 镜像"+x.mirror_account+" "+x.dest_group;}).join("<br>")||"无绑定";
+    }).catch(function(e){box.textContent=String(e);});
+    return;
+  }
+  if(tab==="msg"){
+    box.textContent="加载账号...";
+    fetch("/api/accounts").then(function(r){return r.json();}).then(function(d){
+      var list=Array.isArray(d)?d:[];
+      var opt="<option value=''>选择</option>"+list.map(function(a){return "<option value='"+a.id+"'>#"+a.id+" "+(a.display_name||"")+"</option>";}).join("");
+      box.innerHTML="<div>工作号1</div><select id='s1'>"+opt+"</select><div>工作号2</div><select id='s2'>"+opt+"</select><div>工作号3</div><select id='s3'>"+opt+"</select><button id='msb'>保存发言位</button><div id='ml'></div>";
+      document.getElementById("msb").onclick=function(){
+        var ids=[document.getElementById("s1").value,document.getElementById("s2").value,document.getElementById("s3").value].filter(Boolean);
+        fetch("/api/msgmap/speakers",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ids:ids})}).then(function(r){return r.text();}).then(function(x){document.getElementById("ml").textContent=x;});
+      };
+    }).catch(function(e){box.textContent=String(e);});
+    return;
+  }
+  if(tab==="msg"){
+    box.textContent="加载账号...";
+    fetch("/api/accounts").then(function(r){return r.json();}).then(function(d){
+      var list=Array.isArray(d)?d:[];
+      var opt="<option value=''>选择</option>"+list.map(function(a){return "<option value='"+a.id+"'>#"+a.id+" "+(a.display_name||"")+"</option>";}).join("");
+      box.innerHTML="<div>工作号1</div><select id='s1'>"+opt+"</select><div>工作号2</div><select id='s2'>"+opt+"</select><div>工作号3</div><select id='s3'>"+opt+"</select><button id='msb'>保存发言位</button><div id='ml'></div>";
+      document.getElementById("msb").onclick=function(){
+        var ids=[document.getElementById("s1").value,document.getElementById("s2").value,document.getElementById("s3").value].filter(Boolean);
+        fetch("/api/msgmap/speakers",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ids:ids})}).then(function(r){return r.text();}).then(function(x){document.getElementById("ml").textContent=x;});
+      };
+    }).catch(function(e){box.textContent=String(e);});
+    return;
+  }
+  if(tab==="ov"){
+    box.textContent="加载总览...";
+    Promise.all([
+      fetch("/api/overview").then(function(r){return r.json();}).catch(function(){return {};}),
+      fetch("/api/worker/status").then(function(r){return r.json();}).catch(function(){return {};}),
+      fetch("/api/accounts").then(function(r){return r.json();}).catch(function(){return [];})
+    ]).then(function(x){
+      var o=x[0]||{}, w=x[1]||{}, a=Array.isArray(x[2])?x[2]:[];
+      box.innerHTML="账号 "+(o.accounts||a.length)+"　API "+(o.api_free||0)+"/"+(o.api_total||0)+"　IP "+(o.ip_free||0)+"/"+(o.ip_total||0)+"　配对 "+(o.bound_pairs||0)+"<br>worker "+(w.state||"unknown")+"（保持停止）";
+    }).catch(function(e){box.textContent=String(e);});
+    return;
+  }
+  box.textContent=T[tab]+" 可切换。数据在接口里。";
+}
+document.getElementById("nav").onclick=function(e){
+  var b=e.target.closest("button");
+  if(!b||!b.dataset.t)return;
+  tab=b.dataset.t;
+  draw();
+};
+draw();
+</script></body></html>
