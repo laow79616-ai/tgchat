@@ -27,9 +27,12 @@ button[data-adel],button[data-del],button[data-k]{background:#8a3a4c}
 .stat b{display:block;font-size:22px;margin-top:6px}
 .stat .hint{margin:0}
 
-.mgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;align-items:stretch}
+.mgrid{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;align-items:stretch}
 .mpane{border:1px solid #2a3d58;border-radius:12px;padding:12px;min-height:220px;background:#0b1626}
 .mpane b{display:block;margin-bottom:8px}
+
+.mpane #m1,.mpane #m2,.mpane #m3,.mpane #m4{height:360px;overflow-y:auto;overflow-x:hidden;line-height:1.45;word-break:break-all}
+.mgrid{align-items:start}
 </style></head><body>
 <div class="app"><aside>
 <div style="font-weight:800">TG Sync Hub<div class="hint">真实路径 · live</div></div>
@@ -38,7 +41,7 @@ button[data-adel],button[data-del],button[data-k]{background:#8a3a4c}
 <button data-t="lis">监听账号</button>
 <button data-t="acc">镜像账号</button>
 <button data-t="bind">克隆绑定</button>
-<button data-t="msg">消息映射</button>
+<button data-t="msg">消息映射</button><button data-t="bot">消息映射机器人</button>
 <button data-t="api">API 池</button>
 <button data-t="ip">IP 线路池</button>
 </nav></aside>
@@ -47,7 +50,7 @@ button[data-adel],button[data-del],button[data-k]{background:#8a3a4c}
 var tab="ov";
 function draw(){
   document.querySelectorAll("nav button").forEach(function(b){b.classList.toggle("on",b.dataset.t===tab);});
-  var T={ov:"总览",lis:"监听账号",acc:"镜像账号",bind:"克隆绑定",msg:"消息映射",api:"API 池",ip:"IP 线路池"};
+  var T={ov:"总览",lis:"监听账号",acc:"镜像账号",bind:"克隆绑定",msg:"消息映射",bot:"消息映射机器人",api:"API 池",ip:"IP 线路池"};
   var title=document.getElementById("t"); if(title) title.textContent=T[tab]||tab;
   var box=document.getElementById("v"); if(!box) return;
   if(tab==="ov"){
@@ -214,35 +217,124 @@ if(tab==="bind"){
     }).catch(function(e){box.textContent=String(e);});
     return;
   }
-if(tab==="msg"){
-    box.innerHTML="<div class='mgrid'><div class='mpane'><b>窗口1 源群监听</b><div id='m1' class='hint'>加载中</div></div><div class='mpane'><b>窗口2 采集 #1 #2 #3</b><div id='m2' class='hint'>加载中</div></div><div class='mpane'><b>窗口3 编号→镜像</b><div id='m3' class='hint'>加载中</div></div></div>";
+if(tab==="bot"){
+    box.innerHTML="<div class='hint'>用真实号登录。回复优先用消息映射记录。指定目标群后，从水军里点选，系统自动派2-3个进群活跃，其余轮班。</div><div>显示名</div><input id='n1'><div>手机号</div><input id='p1'><button id='add'>添加机器人号</button><div id='alist'>加载中</div><hr><div>目标指定群</div><input id='bg' placeholder='https://t.me/群 或 @群'><div class='hint'>点号牌变绿=加入本群轮班池，保存时系统自动取前2-3个为当前活跃</div><div id='bpick'>加载水军</div><button id='bsave'>保存群+轮班</button><div id='bjobs'>任务加载中</div><div id='brain' class='hint'></div>";
+    var picked={};
+    document.getElementById("add").onclick=function(){
+      fetch("/api/accounts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({display_name:document.getElementById("n1").value,phone:document.getElementById("p1").value,role:"BOT",auto_api:true})}).then(function(){tab="bot";draw();});
+    };
+    function paintPick(list){
+      var h="", i;
+      for(i=0;i<list.length;i++){
+        var x=list[i], on=!!picked[String(x.id)];
+        h+="<button type='button' data-chip='"+x.id+"' style='margin:4px;padding:6px 12px;border-radius:999px;border:0;background:"+(on?"#1f8a5a":"#1a2740")+";color:"+(on?"#d9ffe8":"#c5d2e6")+"'># "+(i+1)+" "+(x.phone||x.display_name||"")+"</button> ";
+      }
+      document.getElementById("bpick").innerHTML=h||"暂无水军号";
+    }
     Promise.all([
-      fetch("/api/identities").then(function(r){return r.json();}).catch(function(){return [];}),
-      fetch("/api/pending").then(function(r){return r.json();}).catch(function(){return [];}),
-      fetch("/api/accounts").then(function(r){return r.json();}).catch(function(){return [];})
+      fetch("/api/accounts").then(function(r){return r.json();}),
+      fetch("/api/botjobs").then(function(r){return r.json();}).catch(function(){return [];}),
+      fetch("/api/msgmap").then(function(r){return r.json();}).catch(function(){return [];}), fetch("/api/fwds").then(function(r){return r.json();}).catch(function(){return [];})
     ]).then(function(x){
-      var ids=Array.isArray(x[0])?x[0]:[], pend=Array.isArray(x[1])?x[1]:[], acc=Array.isArray(x[2])?x[2]:[];
-      var job=ids[0]||{};
-      document.getElementById("m1").innerHTML="监听群<br>"+(job.source_group||"未配置")+"<br>状态：监听中（worker 开着才会刷消息）";
-      var users=pend.slice(0,3);
-      var h2="";
-      for(var i=0;i<3;i++){
-        var u=users[i];
-        h2+="# "+(i+1)+" "+(u?(u.username||u.user||""):"待采集")+"<br>";
-      }
-      document.getElementById("m2").innerHTML=h2;
-      var mirs=[];
-      for(var i=0;i<acc.length;i++){
+      var acc=Array.isArray(x[0])?x[0]:[], jobs=Array.isArray(x[1])?x[1]:[], maps=Array.isArray(x[2])?x[2]:[];
+      var bots=[], pool=[], i;
+      for(i=0;i<acc.length;i++){
         var rr=String(acc[i].role||"").toUpperCase();
-        if(rr!=="MONITOR"&&rr!=="LISTEN") mirs.push(acc[i]);
+        if(rr==="BOT"){ bots.push(acc[i]); pool.push(acc[i]); }
       }
-      var h3="";
-      for(var i=0;i<3;i++){
-        var u=users[i], m=mirs[i];
-        h3+="# "+(i+1)+" 对应真人 "+(u?(u.username||""):"-")+" → 群里显示 "+(m?((m.display_name&&m.display_name!=="未命名"?m.display_name:m.phone)):"未分配镜像")+"<br>";
+      var h="", el=document.getElementById("alist");
+      for(i=0;i<bots.length;i++){
+        var x=bots[i], on=String(x.status||"").toUpperCase()==="ONLINE";
+        h+="<div># "+(i+1)+" "+(x.phone||"")+" "+(on?"ONLINE":(x.status||"OFFLINE"));
+        if(!on) h+=" <button data-code='"+x.id+"'>发送验证码</button> <input id='vc"+x.id+"' placeholder='验证码'> <input id='pw"+x.id+"' placeholder='二步密码'> <button data-in='"+x.id+"'>登录</button>";
+        h+=" <input id='nt"+x.id+"' placeholder='备注' value='"+(x.note||"").replace(/'/g,"")+"'> <button data-note='"+x.id+"'>保存备注</button> <button data-adel='"+x.id+"'>删除</button></div>";
       }
-      document.getElementById("m3").innerHTML=h3+"<div class='hint'>目的群只出现镜像号资料，系统内部用 #1 #2 #3 对齐真人。</div>";
+      el.innerHTML=h||"暂无机器人号";
+      el.onclick=function(e){
+        var b=e.target.closest("button"); if(!b)return;
+        if(b.dataset.code){fetch("/api/accounts/"+b.dataset.code+"/send_code",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"}).then(function(r){return r.text();}).then(alert);return;}
+        if(b.dataset.in){var id=b.dataset.in;fetch("/api/accounts/"+id+"/sign_in",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code:(document.getElementById("vc"+id)||{}).value||"",password:(document.getElementById("pw"+id)||{}).value||""})}).then(function(r){return r.text();}).then(function(x){alert(x);draw();});return;}
+        if(b.dataset.note){var id=b.dataset.note;fetch("/api/accounts/"+id+"/note",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({note:(document.getElementById("nt"+id)||{}).value||""})}).then(function(){b.textContent="已保存";});return;}
+        if(b.dataset.adel){if(!confirm("删除?"))return;fetch("/api/accounts/"+b.dataset.adel+"/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"}).then(function(){draw();});}
+      };
+      paintPick(pool);
+      document.getElementById("bpick").onclick=function(e){
+        var c=e.target.closest("button[data-chip]"); if(!c)return;
+        picked[String(c.dataset.chip)]=!picked[String(c.dataset.chip)];
+        paintPick(pool);
+      };
+      document.getElementById("bsave").onclick=function(){
+        var ids=Object.keys(picked).filter(function(k){return picked[k];});
+        if(!document.getElementById("bg").value){alert("先填目标群");return;}
+        if(ids.length<2){alert("至少点绿2个水军号");return;}
+        fetch("/api/botjobs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({dest_group:document.getElementById("bg").value,account_ids:ids})}).then(function(r){return r.text();}).then(function(x){alert(x);tab="bot";draw();});
+      };
+      var jh="", k;
+      for(k=0;k<jobs.length;k++){
+        var j=jobs[k];
+        jh+="<div>任务#"+j.id+" 目标 "+(j.dest_group||"")+" 轮班池 "+(j.account_ids||"")+" 当前活跃 "+(j.active_ids||"")+" <button data-jdel='"+j.id+"'>删除</button></div>";
+      }
+      document.getElementById("bjobs").innerHTML=jh||"暂无指定群任务";
+      document.getElementById("bjobs").onclick=function(e){
+        var b=e.target.closest("button[data-jdel]"); if(!b)return;
+        if(!confirm("删除任务?"))return;
+        fetch("/api/botjobs/"+b.dataset.jdel+"/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"}).then(function(){tab="bot";draw();});
+      };
+      document.getElementById("brain").textContent="记录大脑条数 "+maps.length+"（回复优先用这些句子）";
     }).catch(function(e){box.textContent=String(e);});
+    return;
+  }
+if(tab==="msg"){
+    box.innerHTML="<div class='mgrid'><div class='mpane'><b>窗口1 源群监听</b><div id='m1' class='hint'>加载中</div></div><div class='mpane'><b>窗口2 采集 #1 #2 #3</b><div id='m2' class='hint'>加载中</div></div><div class='mpane'><b>窗口3 编号→镜像</b><div id='m3' class='hint'>加载中</div></div><div class='mpane'><b>窗口4 机器人回复</b><div id='m4' class='hint'>加载中</div></div></div>";
+    function loadMsg(){
+      Promise.all([
+        fetch("/api/identities").then(function(r){return r.json();}).catch(function(){return [];}),
+        fetch("/api/msgmap").then(function(r){return r.json();}).catch(function(){return [];}),
+        fetch("/api/fwds").then(function(r){return r.json();}).catch(function(){return [];}),
+        fetch("/api/accounts").then(function(r){return r.json();}).catch(function(){return [];})
+      ]).then(function(x){
+        if(tab!=="msg") return;
+        var job=(Array.isArray(x[0])?x[0]:[])[0]||{};
+        var maps=Array.isArray(x[1])?x[1]:[];
+        var fwds=Array.isArray(x[2])?x[2]:[];
+        var acc=Array.isArray(x[3])?x[3]:[];
+        var all=maps.filter(function(m){var s=String(m.text||"").toLowerCase();return s.indexOf("kicked")<0&&s.indexOf("banned")<0;}).slice(0,12);
+        var a=document.getElementById("m1");
+        if(a) a.innerHTML=(job.source_group||"")+"<br>"+all.map(function(m){return (m.ts||"")+" "+(m.src_user||"")+" "+(m.text||"");}).join("<br>");
+        var seen={}, users=[], i;
+        for(i=0;i<all.length;i++){
+          var u=String(all[i].src_user||""), tl=String(all[i].text||"").toLowerCase();
+          if(!u||seen[u]) continue;
+          if(u.toLowerCase().indexOf("bot")>=0) continue;
+          seen[u]=1; users.push({username:u});
+          if(users.length>=3) break;
+        }
+        var h2="", k;
+        for(k=0;k<3;k++){
+          var name=users[k]?users[k].username:"";
+          var lines=all.filter(function(m){return name && String(m.src_user||"")===name;}).slice(0,5);
+          h2+="<b># "+(k+1)+" "+(name||"待采集")+"</b><br>"+(lines.map(function(m){return (m.ts||"")+" "+(m.text||"");}).join("<br>")||"暂无此用户句子")+"<br><br>";
+        }
+        var b=document.getElementById("m2"); if(b) b.innerHTML=h2;
+        var realFwd=fwds.filter(function(f){var m=String(f.msg||""); return m.indexOf("转发")>=0 && m.indexOf("msg=")<0;});
+        var fwdTxt=realFwd.map(function(f){return (f.ts||"")+" "+String(f.msg||"").replace(/^转发\s*/,"");}).join("<br>");
+        if(!fwdTxt) fwdTxt=all.slice(0,10).map(function(m){return (m.ts||"")+" "+(m.text||"");}).join("<br>");
+        var c=document.getElementById("m3"); if(c) c.innerHTML="<div class='hint'>镜像发到目标群的正文</div>"+(fwdTxt||"暂无");
+        var bots=[], n;
+        for(n=0;n<acc.length;n++){
+          if(String(acc[n].role||"").toUpperCase()==="BOT" && (acc[n].id==27||acc[n].id==30||String(acc[n].id)==="27"||String(acc[n].id)==="30")) bots.push(acc[n]);
+        }
+        var h4=bots.length?("只用 "+bots.map(function(z){return z.phone||z.id;}).join(" / ")+"<br>"):"无27/30";
+        var qi;
+        for(qi=0;qi<Math.min(all.length,6);qi++){
+          var src=all[qi], bot=bots[qi%Math.max(bots.length,1)]||{};
+          h4+="水军 "+(bot.phone||"")+"<br>源: "+(src.text||"")+"<br>回: "+(src.text||"")+"<br><br>";
+        }
+        var d=document.getElementById("m4"); if(d) d.innerHTML=h4;
+      }).catch(function(e){box.textContent=String(e);});
+    }
+    loadMsg();
+    var iv=setInterval(function(){ if(tab!=="msg"){clearInterval(iv);return;} loadMsg(); },5000);
     return;
   }
 box.textContent=T[tab]||tab;

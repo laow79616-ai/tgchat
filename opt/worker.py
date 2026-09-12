@@ -61,6 +61,11 @@ async def join(cl, link, tag):
         return None
 
 async def once():
+    try:
+        import slots as _sl; _sl.rotate()
+    except Exception as _e:
+        log('slot '+str(_e),'warn')
+
     c = db()
     c.execute("CREATE TABLE IF NOT EXISTS identity_bindings(id INTEGER PRIMARY KEY AUTOINCREMENT,monitor_account INTEGER,source_group TEXT,real_user TEXT,mirror_account INTEGER,dest_group TEXT,enabled INTEGER DEFAULT 1)")
     rows = c.execute("SELECT * FROM identity_bindings WHERE enabled=1").fetchall()
@@ -79,6 +84,14 @@ async def once():
                 await mon.disconnect(); await mir.disconnect()
                 continue
             want = norm(b["real_user"]).lower()
+            allow=set()
+            try:
+                import sqlite3 as _s2
+                _c2=_s2.connect('/var/lib/tgchat/tgchat.db')
+                allow=set((r[0] or '').lower() for r in _c2.execute('SELECT username FROM active_slots') if r[0])
+                _c2.close()
+            except Exception:
+                allow=set()
             msgs = await mon.get_messages(src, limit=5)
             for m in reversed(list(msgs or [])):
                 if not m or not m.id:
@@ -86,7 +99,9 @@ async def once():
                 sender = await m.get_sender()
                 uname = (getattr(sender, "username", None) or "")
                 uid = str(getattr(sender, "id", "") or "")
-                if want and want not in (uname.lower(), uid, "@"+uname.lower()):
+                if allow and (("@"+uname.lower()) not in allow) and (uname.lower() not in allow):
+                    continue
+                if want and want not in ("auto","") and want not in (uname.lower(), str(uid), "@"+uname.lower()):
                     continue
                 key = "fwd:%s:%s" % (b["id"], m.id)
                 c = db()
@@ -103,7 +118,7 @@ async def once():
                 if text:
                     await mir.send_message(dst, text)
                     n += 1
-                    log("转发 bind=%s msg=%s" % (b["id"], m.id))
+                    log("转发 %s" % ((text or "")[:80]))
                 c.execute("INSERT INTO events(ts,level,msg) VALUES(datetime('now'),'info',?)", (key,))
                 c.commit(); c.close()
             await mon.disconnect(); await mir.disconnect()
@@ -122,9 +137,14 @@ async def main():
                 await _col()
             except Exception as _e:
                 log('collect '+str(_e),'warn')
+            try:
+                from bot_reply import run as _br
+                await _br()
+            except Exception as _be:
+                log('bot_reply '+str(_be),'warn')
         except Exception as e:
             log("loop %s" % e, "error")
-        await asyncio.sleep(30)
+        await asyncio.sleep(8)
 
 if __name__ == "__main__":
     asyncio.run(main())

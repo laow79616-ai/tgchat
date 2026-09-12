@@ -24,6 +24,27 @@ class H(BaseHTTPRequestHandler):
         self.end_headers(); self.wfile.write(b)
     def do_OPTIONS(self): self.sendj(200, {"ok": True})
     def do_GET(self):
+        _f=self.path.split("?")[0].rstrip("/")
+        if _f=="/api/fwds":
+            db=__import__("sqlite3").connect("/var/lib/tgchat/tgchat.db")
+            rows=[{"id":r[0],"ts":r[1],"msg":r[2]} for r in db.execute("SELECT id,ts,msg FROM events WHERE msg LIKE '转发%' ORDER BY id DESC LIMIT 30")]
+            self.sendj(200,rows); db.close(); return
+        _bj=self.path.split("?")[0].rstrip("/")
+        if _bj=="/api/botjobs":
+            db=__import__("sqlite3").connect("/var/lib/tgchat/tgchat.db")
+            db.execute("CREATE TABLE IF NOT EXISTS bot_jobs(id INTEGER PRIMARY KEY AUTOINCREMENT,dest_group TEXT,account_ids TEXT,active_ids TEXT,note TEXT,enabled INTEGER DEFAULT 1)")
+            rows=[]
+            for r in db.execute("SELECT id,dest_group,account_ids,active_ids,note,enabled FROM bot_jobs ORDER BY id DESC"):
+                rows.append({"id":r[0],"dest_group":r[1],"account_ids":r[2],"active_ids":r[3],"note":r[4],"enabled":r[5]})
+            self.sendj(200,rows); db.close(); return
+        _sl=self.path.split("?")[0].rstrip("/")
+        if _sl=="/api/slots":
+            db=__import__("sqlite3").connect("/var/lib/tgchat/tgchat.db")
+            try:
+                rows=[{"slot":r[0],"username":r[1],"last_ts":r[2]} for r in db.execute("SELECT slot,username,last_ts FROM active_slots ORDER BY slot")]
+            except Exception:
+                rows=[]
+            self.sendj(200,rows); db.close(); return
         _g=self.path.split("?")[0].rstrip("/")
         if _g=="/api/ipbinds":
             db=sqlite3.connect("/var/lib/tgchat/tgchat.db")
@@ -146,6 +167,24 @@ class H(BaseHTTPRequestHandler):
             self.sendj(404, {"detail":"Not Found","path":p})
         c.close()
     def do_POST(self):
+        _bj=self.path.split("?")[0].rstrip("/")
+        if _bj=="/api/botjobs":
+            raw=self.rfile.read(int(self.headers.get("Content-Length") or 0) or 0)
+            import json as _j
+            try: body=_j.loads(raw or b"{}")
+            except Exception: body={}
+            ids=[str(x) for x in (body.get("account_ids") or [])]
+            act=ids[:3]
+            db=__import__("sqlite3").connect("/var/lib/tgchat/tgchat.db")
+            db.execute("CREATE TABLE IF NOT EXISTS bot_jobs(id INTEGER PRIMARY KEY AUTOINCREMENT,dest_group TEXT,account_ids TEXT,active_ids TEXT,note TEXT,enabled INTEGER DEFAULT 1)")
+            db.execute("INSERT INTO bot_jobs(dest_group,account_ids,active_ids,note,enabled) VALUES(?,?,?,?,1)",
+                       (body.get("dest_group") or "", ",".join(ids), ",".join(act), body.get("note") or ""))
+            db.commit(); self.sendj(200,{"ok":True,"active":act}); db.close(); return
+        if _bj.startswith("/api/botjobs/") and _bj.endswith("/delete"):
+            iid=int(_bj.split("/")[3])
+            db=__import__("sqlite3").connect("/var/lib/tgchat/tgchat.db")
+            db.execute("DELETE FROM bot_jobs WHERE id=?",(iid,)); db.commit(); db.close()
+            self.sendj(200,{"ok":True}); return
         _b=self.path.split("?")[0].rstrip("/")
         if _b.startswith("/api/ips/") and _b.endswith("/bind"):
             iid=int(_b.split("/")[3])
