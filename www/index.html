@@ -26,6 +26,10 @@ button[data-adel],button[data-del],button[data-k]{background:#8a3a4c}
 .stat{background:#0d1a2c;border:1px solid #24344c;border-radius:12px;padding:14px}
 .stat b{display:block;font-size:22px;margin-top:6px}
 .stat .hint{margin:0}
+
+.mgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;align-items:stretch}
+.mpane{border:1px solid #2a3d58;border-radius:12px;padding:12px;min-height:220px;background:#0b1626}
+.mpane b{display:block;margin-bottom:8px}
 </style></head><body>
 <div class="app"><aside>
 <div style="font-weight:800">TG Sync Hub<div class="hint">真实路径 · live</div></div>
@@ -89,14 +93,14 @@ function draw(){
       for(i=0;i<list.length;i++){
         var x=list[i], on=String(x.status||"").toUpperCase()==="ONLINE";
         h+="<div># "+(i+1)+" "+(x.phone||"")+" "+(on?"ONLINE":(x.status||"OFFLINE"));
-        if(!on) h+=" <button data-code='"+x.id+"'>发送验证码</button> <input id='vc"+x.id+"' placeholder='验证码'> <button data-in='"+x.id+"'>登录</button>";
+        if(!on) h+=" <button data-code='"+x.id+"'>发送验证码</button> <input id='vc"+x.id+"' placeholder='验证码'> <input id='pw"+x.id+"' placeholder='二步密码'> <button data-in='"+x.id+"'>登录</button>";
         h+=" <input id='nt"+x.id+"' placeholder='备注' value='"+(x.note||"").replace(/'/g,"")+"'> <button data-note='"+x.id+"'>保存备注</button> <button data-adel='"+x.id+"'>删除</button></div>";
       }
       el.innerHTML=h||"暂无";
       el.onclick=function(e){
         var b=e.target.closest("button"); if(!b)return;
         if(b.dataset.code){fetch("/api/accounts/"+b.dataset.code+"/send_code",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"}).then(function(r){return r.text();}).then(alert);return;}
-        if(b.dataset.in){var id=b.dataset.in;fetch("/api/accounts/"+id+"/sign_in",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code:(document.getElementById("vc"+id)||{}).value||"",password:""})}).then(function(r){return r.text();}).then(function(x){alert(x);draw();});return;}
+        if(b.dataset.in){var id=b.dataset.in;fetch("/api/accounts/"+id+"/sign_in",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code:(document.getElementById("vc"+id)||{}).value||"",password:(document.getElementById("pw"+id)||{}).value||""})}).then(function(r){return r.text();}).then(function(x){alert(x);draw();});return;}
         if(b.dataset.note){var id=b.dataset.note;fetch("/api/accounts/"+id+"/note",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({note:(document.getElementById("nt"+id)||{}).value||""})}).then(function(){b.textContent="已保存";});return;}
         if(b.dataset.adel){if(!confirm("删除?"))return;fetch("/api/accounts/"+b.dataset.adel+"/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"}).then(function(){draw();});}
       };
@@ -211,18 +215,37 @@ if(tab==="bind"){
     return;
   }
 if(tab==="msg"){
-    box.innerHTML="<div>源群</div><div id='m1' class='hint'>暂无</div><div>3个源用户</div><div id='m2' class='hint'>暂无</div><div>镜像群</div><div id='m3' class='hint'>暂无</div>";
-    fetch("/api/identities").then(function(r){return r.json();}).then(function(d){
-      d=Array.isArray(d)?d:[];
-      var x=d[0]||{};
-      var a=document.getElementById("m1"),b=document.getElementById("m2"),c=document.getElementById("m3");
-      if(a) a.textContent=x.source_group||"未配置";
-      if(b) b.textContent=x.real_user||"AUTO";
-      if(c) c.textContent=x.dest_group||"未配置";
+    box.innerHTML="<div class='mgrid'><div class='mpane'><b>窗口1 源群监听</b><div id='m1' class='hint'>加载中</div></div><div class='mpane'><b>窗口2 采集 #1 #2 #3</b><div id='m2' class='hint'>加载中</div></div><div class='mpane'><b>窗口3 编号→镜像</b><div id='m3' class='hint'>加载中</div></div></div>";
+    Promise.all([
+      fetch("/api/identities").then(function(r){return r.json();}).catch(function(){return [];}),
+      fetch("/api/pending").then(function(r){return r.json();}).catch(function(){return [];}),
+      fetch("/api/accounts").then(function(r){return r.json();}).catch(function(){return [];})
+    ]).then(function(x){
+      var ids=Array.isArray(x[0])?x[0]:[], pend=Array.isArray(x[1])?x[1]:[], acc=Array.isArray(x[2])?x[2]:[];
+      var job=ids[0]||{};
+      document.getElementById("m1").innerHTML="监听群<br>"+(job.source_group||"未配置")+"<br>状态：监听中（worker 开着才会刷消息）";
+      var users=pend.slice(0,3);
+      var h2="";
+      for(var i=0;i<3;i++){
+        var u=users[i];
+        h2+="# "+(i+1)+" "+(u?(u.username||u.user||""):"待采集")+"<br>";
+      }
+      document.getElementById("m2").innerHTML=h2;
+      var mirs=[];
+      for(var i=0;i<acc.length;i++){
+        var rr=String(acc[i].role||"").toUpperCase();
+        if(rr!=="MONITOR"&&rr!=="LISTEN") mirs.push(acc[i]);
+      }
+      var h3="";
+      for(var i=0;i<3;i++){
+        var u=users[i], m=mirs[i];
+        h3+="# "+(i+1)+" 对应真人 "+(u?(u.username||""):"-")+" → 群里显示 "+(m?((m.display_name&&m.display_name!=="未命名"?m.display_name:m.phone)):"未分配镜像")+"<br>";
+      }
+      document.getElementById("m3").innerHTML=h3+"<div class='hint'>目的群只出现镜像号资料，系统内部用 #1 #2 #3 对齐真人。</div>";
     }).catch(function(e){box.textContent=String(e);});
     return;
   }
-  box.textContent=T[tab]||tab;
+box.textContent=T[tab]||tab;
 }
 document.getElementById("nav").onclick=function(e){
   var b=e.target.closest("button[data-t]"); if(!b)return;
